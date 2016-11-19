@@ -1,11 +1,9 @@
 "use strict";
 
 // If any property is added to 'this' change line 79 at selector.js
-
 //properties to add: actions => [{onClose: true, do: doAppend, source: readStream}, {onClose: false, do:prepend, source: "hi"}]
 
-// Helper function
-function addAction(actionFn, source, onClose) {
+function _addAction(actionFn, source, onClose) {
     //TODO check if source is string of stream
     
     var action = {onClose: (onClose || false), do: actionFn, source: source};
@@ -18,65 +16,100 @@ function addAction(actionFn, source, onClose) {
     return this;
 }
 
-
-//addMethod('append', true, (source, tagName, push) => {
-
-//});
-
-exports.each = function(fn) {
+function addMethod(name, onClose, actionFn) {
+    if(actionFn === undefined) {
+        actionFn = onClose;
+        onClose = false;
+    }
     
-};
+    exports[name] = function(obj) {
+        return _addAction.call(this, actionFn, obj, onClose);
+    }
+}
 
-exports.append = function(obj) {
-    return addAction.call(this, append, obj, true);
-};
+addMethod('append', true, append);
+addMethod('after', true, after);
+addMethod('before', before);
+addMethod('prepend', prepend);
+addMethod('html');
+addMethod('replaceWith');
+addMethod('remove');
+addMethod('attr');
 
-exports.prepend = function(obj) {
-    return addAction.call(this, prepend, obj);
-};
+//addMethod('append', null, append);
+//addMethod('before', before);
+//addMethod('replaceWith', replaceOpen, replaceClose);
+//addMethod('html', htmlOpen, htmlClose);
+//addMethod('remove', removeOpen, removeClose);
 
-exports.after = function(obj) {
-    //return addAction.call(this, after, true);
-};
+/*
+function replaceOpen(source, tag, push) {
+    push(null, {replace: true})
+}
 
-exports.before = function(obj) {
-    return addAction.call(this, before, obj);    
-};
+function replaceClose(source, tag, push) {
+    push(source);
+    push(null, {replace: false});
+}
 
-exports.html = function(obj) {
-};
+funcion htmlOpen(source, tag, push) {
+    if(source === null) { //get
+        push(tag);
+        push(null, {buffer: myBuf});
+    }
+    
+    else { //set
+        push(tag);
+        push(source);
+        push(null, {replace: true});
+    }
+}
 
-exports.replaceWith = function(obj) {
-    return addAction.call(this, replaceWith, obj);
-};
+function htmlClose(source, tag, push) {
+    if(source === null) { //get
+        push(tag);
+    }
+    
+    else { //set
+        push(tag);
+        push(null, {replace: false});
+    }
+}
 
+function removeOpen(source, tag, push) {
+    push(null, {replace: true});
+}
 
+function removeClose(source, tag, push) {
+    push(null, {replace: false});
+}
+*/
 
 function before(source, tag, push) {
     if((typeof source === "string") || Buffer.isBuffer(source)) {
         push(source);
-        push(tag);
+        push(tag, true);
         return push(null);
     }
 
 }
 
-function prepend(source, push, doneCb) {
+function prepend(source, tag, push) {
     if((typeof source === "string") || Buffer.isBuffer(source)) {
-        push(tag);
+        push(tag, true);
         push(source);
         return push(null);
     }
 }
 
-function append(source, push, doneCb) {
-    
+function append(source, tag, push) {
+    push(source);
+    push(tag, true);
+    push(null);
 }
 
-function html(source, push, doneCb) {
- 
-}
-
-function replaceWith(source, push, doneCb) {
- 
+function after(source, tag, push) {
+    push(tag, true);
+    push(source);
+    push(null);
 }

@@ -20,7 +20,7 @@ selector.$ = function(selector) {
         return null; 
     }
     
-    var tagName = sel.name;
+    var tagName = sel.name || 'none';
     var newMod = Object.create(methods);
    
     for(var prop in sel) {
@@ -47,7 +47,8 @@ selector.match = function(elementString) {
     elementString = elementString.slice(spaceIndex + 1);
     
     var elem = this.modifiers[tagName];
-    if(!elem) {
+    var none = this.modifiers.none;
+    if(!elem && !none) {
         return [];
     }
     
@@ -66,7 +67,12 @@ selector.match = function(elementString) {
  
     
     var matches = []; //Array to be returned
-    elem.forEach( (element) => {
+    elem && elem.forEach( (element) => {
+       if(_isMatch(element, el)) 
+           matches.push(element);
+    });
+    
+    none && none.forEach( (element) => {
        if(_isMatch(element, el)) 
            matches.push(element);
     });
@@ -83,7 +89,7 @@ function _isMatch(mod, elem) {
         return true;
     
     var isMatch = false;
-    
+
     for(var prop in mod) {
         if(!mod.hasOwnProperty(prop) || skip.indexOf(prop) !== -1) 
             continue;
@@ -132,6 +138,7 @@ selector.parseSelector = function(selector) {
             continue;
         } 
         
+       
         if(type.length) {
             if(type === 'name')
                 sel[type] = selector.slice(startIndex, i);

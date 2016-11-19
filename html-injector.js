@@ -12,34 +12,45 @@ function Injector(options) {
         return new Injector(options);
     }
     
-    stream.Transform.call(this);
+    stream.Transform.call(this, options);
     
     this.selector = selector();
     this.$ = selector.$.bind(this.selector); //TODO find another solution to this uglyness
     
+    //Flags for parse()
     this.alreadyDone = false;   //writecb in _transform has already been called
     this.insideScript = false;  //is currently inside a script element '<script>....</script>'
     
+    //Used in parse()
     this.chunkBuffer = null;
+    this.curChunk = null;
+    this.offset = 0;
     
     this.closingStack = {};
-    this.insertAt = 0;         //used in pushToChunk function
     
     this.HtmlselfClosingTags = ['area', 'base', 'br', 'col' , 'command',
                                 'embed', 'hr', 'img', 'input', 'keygen', 'link',
                                 'meta', 'param', 'source', 'track', 'wbr'];
+    
+    //Flags for pushToChunk()
+    this.dataStart = null;
+    this.tagStart = null;
+    this.tagLen = null;
+    this.firstPush = null;
     
 };
 
 util.inherits(Injector, stream.Transform);
 
 Injector.prototype._transform = function(chunk, encoding, done) {
-    console.log("TYPE!!: ", Buffer.isBuffer(chunk));
+
     // Concatenate new chunk to internal buffer and free internal chunk buffer
     if(this.chunkBuffer) {
         chunk = Buffer.concat([this.chunkBuffer, chunk]);
         this.chunkBuffer = null;
     }
+    
+    this.curChunk = chunk; 
     
     // Flags for loop
     var insideOpening = false,      //is currently inside an opening tag '<...'
@@ -51,12 +62,12 @@ Injector.prototype._transform = function(chunk, encoding, done) {
         lastOpenTagChar,    //index of last open tag character '<'.
         i = -1;
     
-    
-    var parse = function(startFrom) {
-        i = startFrom || i;
-        
-        while(++i < chunk.length) {
-            var char = String.fromCharCode(chunk[i]);
+    //TODO performance: move this definition out of _transform so it wont unecessarily have closure over chunk
+    var parse = function() {
+        i += this.offset;
+      
+        while(++i < this.curChunk.length) {
+            var char = String.fromCharCode(this.curChunk[i]);
 
             if(insideOpening) {
                 curElement += char;
@@ -77,7 +88,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
                     if(curElement.slice(0, 7) === '<script')
                         this.insideScript = true;
                     
-                    this.processElement(curElement, chunk, lastOpenTagChar, i, parse);
+                    this.processElement(curElement, lastOpenTagChar, i, parse);
                     break;
                 }
             }
@@ -96,7 +107,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
                     if(curElement === '</script>')
                         this.insideScript = false;
 
-                    this.processClosing(curElement, chunk, lastOpenTagChar, i, parse);
+                    this.processClosing(curElement, lastOpenTagChar, i, parse);
                     break;
                 }
             }
@@ -106,7 +117,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
                 curElement = '<';
                 lastOpenTagChar = i;
 
-                if(String.fromCharCode(chunk[i+1]) === '/') { //closing tag '</'
+                if(String.fromCharCode(this.curChunk[i+1]) === '/') { //closing tag '</'
                     curElement += '/';
                     insideClosing = true;
                     i++;
@@ -119,19 +130,18 @@ Injector.prototype._transform = function(chunk, encoding, done) {
         }
 
         // End parsing
-        if(i >= chunk.length && !this.alreadyDone) {
-            console.log(chunk);
+        if(i >= this.curChunk.length && !this.alreadyDone) {
             this.alreadyDone = true;
         
             // Incomplete opening '<...' or closing '</...' tag.
             // Push chunk up to incomplete tag beginning and save the rest in internal buffer.
             if(insideClosing || insideOpening) { 
-                chunkBuffer = chunk.slice(lastOpenTagChar);
-                this.push(chunk.slice(0, lastOpenTagChar));
+                chunkBuffer = this.curChunk.slice(lastOpenTagChar);
+                this.push(this.curChunk.slice(0, lastOpenTagChar));
             }
 
             else 
-                this.push(chunk);
+                this.push(this.curChunk);
 
             done();
         }
@@ -143,73 +153,123 @@ Injector.prototype._transform = function(chunk, encoding, done) {
 };
 
 
-Injector.prototype.processElement = function(tag, chunk, startTag, endTag, cb) {
+Injector.prototype.processElement = function(tag, startTag, endTag, doneCb) {
     var tagName = tag.slice(1, tag.indexOf(' '));
     var matches = this.selector.match(tag);
     
-    //No match
+    this.offset = 0;
+    
+    //No matches
     if(matches.length === 0) {
         var stack = this.closingStack[tagName];
         
-        if(stack && (this.HtmlselfClosingTags.indexOf(tagName) !== -1))
+        if(stack && (this.HtmlselfClosingTags.indexOf(tagName) === -1)) 
             stack[stack.length - 1].counter++;
         
-        return cb();
+        return doneCb();
     }
-    
+
     var onCloseActions = [];
+    var actionIndex = 0;
+    var match;
     
-    //For each selector match
-    matches.forEach( (match) => {
-        if(!match.actions) {
-            return cb();
+    //Used in pushToChunk
+    this.tagStart = this.dataStart = startTag;
+    this.tagLen = tag.length;
+    
+    //Iterate through matches
+    var nextMatch = function() {
+        match = matches.shift();
+       
+        if(!match) {
+            if(onCloseActions.length) {
+                if(!this.closingStack[tagName])
+                    this.closingStack[tagName] = [];
+        
+                this.closingStack[tagName].push({
+                    actions: onCloseActions,
+                    counter: 1
+                });
+        
+            }
+            doneCb();
         }
         
-        //For each method called on the selector
-        match.actions.forEach( (action) => {
-            
-            if( action.onClose && (this.HtmlselfClosingTags.indexOf(tagName) !== -1) )   //wait for closing tag
-                onCloseActions.push(action);
-            
-            else 
-                action.do(action.source, tag, pushToChunk.bind(this, chunk, startTag, endTag, cb));
-            
-            
-            
-        });
-    });
-    
-    if(onCloseActions.length) {
-        if(!this.closingStack[tagName])
-            this.closingStack[tagName] = [];
+        else if(!(match.actions && match.actions.length))
+            nextMatch();
         
-        this.closingStack[tagName].push({
-            actions: onCloseActions,
-            counter: 1
-        });
-    }
+        else {
+            actionIndex = 0;
+            nextAction();
+        }
+        
+    }.bind(this);
+    
+    //Iterate through actions
+    var nextAction = function() {
+        //var action = match.actions.shift();
+        var action = match.actions[actionIndex++];
+    
+        if(!action)
+            nextMatch();
+        
+        else if( action.onClose && (this.HtmlselfClosingTags.indexOf(tagName) === -1) ) {  //wait for closing tag
+            
+            onCloseActions.push(action);
+            nextAction();
+        }
+        
+        else {
+            this.firstPush = true;
+            action.do(action.source, tag, pushToChunk.bind(this, nextAction));
+        }
+    }.bind(this);
+    
+    nextMatch();
     
 };
 
 
-Injector.prototype.processClosing = function(tag, chunk, startTag, endTag, cb) {
+Injector.prototype.processClosing = function(tag, startTag, endTag, doneCb) {
     var tagName = tag.slice(2,-1);
     
+    this.offset = 0;
     var stack = this.closingStack[tagName];
-    if(!stack) {
-        return cb();
+   
+    if(!(stack && stack.length)) {
+        return doneCb();
     }
-
+    
+    //Used in pushToChunk
+    this.tagStart = this.dataStart = startTag;
+    this.tagLen = tag.length;
+    
+    var actionIndex = 0;
+    var actions;
+    
+    var nextAction = function() {
+        var action = actions[actionIndex++];
+        
+        if(!action) {
+            if(stack.length === 0)
+                delete this.closingStack[tagName];  //not working?
+            doneCb();
+        }
+        
+        else {
+            this.firstPush = true;
+            action.do(action.source, tag, pushToChunk.bind(this, nextAction));
+        }
+            
+    }.bind(this);
+    
     if ( (--(stack[stack.length - 1].counter)) === 0) {
-        var actions = stack.pop().actions;
-        
-        actions.forEach( (action) => {
-            action.do(action.source, tag, pushToChunk.bind(this, chunk, startTag, endTag, cb));
-        });
-        
-        if(stack.length === 1)
-            delete this.closingStack[tagName];
+        actions = stack.pop().actions;
+        nextAction();
     }
+    
+    else
+        doneCb();
     
 };
 
@@ -218,36 +278,33 @@ Injector.prototype.$ = function(selector) {
     this.selector.$();
 };
 
-//Removes current tag from chunk once.TODO
+//Removes current tag from chunk once.
 //Inserts data in chunk at the position of the current tag.
-//If there are no arguments, call callback with the new read position (i) as argument
-function pushToChunk(chunk, startTag, endTag, cb, data) {
-    var beginAt;
+function pushToChunk(doneCb, data, isTag) {  
+    if(this.firstPush) {
+        this.dataStart = this.tagStart;
+        //Remove tags
+        this.curChunk = Buffer.concat([this.curChunk.slice(0, this.tagStart), this.curChunk.slice(this.tagStart + this.tagLen)]);
+        this.firstPush = false;
+    }
     
-    //First time this function is called for this chunk
-    if(this.insertAt === 0) {
-        this.insertAt = startTag; 
-        beginAt = endTag+1; 
-    }
-    else
-        beginAt = this.insertAt;
-        
     if(!data) {
-        cb(this.insertAt);
-        return;
+        return doneCb();
     }
+    
+    if(isTag) {
+        this.tagStart = this.dataStart;
+        this.tagLen = data.length;
+    }
+    
+    else
+       this.offset += data.length; 
     
     if(typeof data === "string")
         data = Buffer.from(data);
     
-    //else if(data is a stream) {
-        
-    //}
+    this.curChunk = Buffer.concat([this.curChunk.slice(0, this.dataStart), data, this.curChunk.slice(this.dataStart)]);
     
-    else if(!Buffer.isBuffer(data)) 
-        return false;
-    
-    chunk = Buffer.concat([chunk.slice(0, this.insertAt), data, chunk.slice(beginAt)]);
-    this.insertAt += data.length; 
-    
+    this.dataStart += data.length;
+   
 }
