@@ -16,42 +16,37 @@ function _addAction(actionFn, source, onClose) {
     return this;
 }
 
-function addMethod(name, onClose, actionFn) {
-    if(actionFn === undefined) {
-        actionFn = onClose;
-        onClose = false;
-    }
+function addMethod(name, openFn, closeFn) {
+    var hasOpen = openFn && (typeof openFn === "function");
+    var hasClose = closeFn && (typeof closeFn === "function");
     
     exports[name] = function(obj) {
-        return _addAction.call(this, actionFn, obj, onClose);
+        var ret;
+        hasOpen && (ret = _addAction.call(this, openFn, obj));
+        hasClose && (ret = _addAction.call(this, closeFn, obj, true));
+        return ret;
     }
 }
 
-addMethod('append', true, append);
-addMethod('after', true, after);
+addMethod('append', null, append);
+addMethod('after', null, after);
 addMethod('before', before);
 addMethod('prepend', prepend);
-addMethod('html');
-addMethod('replaceWith');
-addMethod('remove');
-addMethod('attr');
-
-//addMethod('append', null, append);
-//addMethod('before', before);
-//addMethod('replaceWith', replaceOpen, replaceClose);
+addMethod('replaceWith', replaceOpen, replaceClose);
+addMethod('remove', removeOpen, removeClose);
 //addMethod('html', htmlOpen, htmlClose);
-//addMethod('remove', removeOpen, removeClose);
+//addMethod('attr', attr);
 
-/*
+
 function replaceOpen(source, tag, push) {
+    push(source);
     push(null, {replace: true})
 }
 
 function replaceClose(source, tag, push) {
-    push(source);
     push(null, {replace: false});
 }
-
+/*
 funcion htmlOpen(source, tag, push) {
     if(source === null) { //get
         push(tag);
@@ -72,9 +67,10 @@ function htmlClose(source, tag, push) {
     
     else { //set
         push(tag);
-        push(null, {replace: false});
+        push(null);
     }
 }
+*/
 
 function removeOpen(source, tag, push) {
     push(null, {replace: true});
@@ -83,7 +79,7 @@ function removeOpen(source, tag, push) {
 function removeClose(source, tag, push) {
     push(null, {replace: false});
 }
-*/
+
 
 function before(source, tag, push) {
     if((typeof source === "string") || Buffer.isBuffer(source)) {

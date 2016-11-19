@@ -1,3 +1,4 @@
+//TODO Implement Stream support in pushToChunk()
 "use strict";
 
 const stream = require('stream'),
@@ -20,11 +21,14 @@ function Injector(options) {
     //Flags for parse()
     this.alreadyDone = false;   //writecb in _transform has already been called
     this.insideScript = false;  //is currently inside a script element '<script>....</script>'
+    this.replacing = false;     //replacing mode
     
     //Used in parse()
     this.chunkBuffer = null;
     this.curChunk = null;
     this.offset = 0;
+    this.replaceStart = 0;      //position where replacing begins
+    this.replaceEnd = 0;        //position where replacing ends
     
     this.closingStack = {};
     
@@ -43,14 +47,14 @@ function Injector(options) {
 util.inherits(Injector, stream.Transform);
 
 Injector.prototype._transform = function(chunk, encoding, done) {
-
     // Concatenate new chunk to internal buffer and free internal chunk buffer
     if(this.chunkBuffer) {
         chunk = Buffer.concat([this.chunkBuffer, chunk]);
         this.chunkBuffer = null;
     }
     
-    this.curChunk = chunk; 
+    this.curChunk = chunk;
+    this.alreadyDone = false;
     
     // Flags for loop
     var insideOpening = false,      //is currently inside an opening tag '<...'
@@ -87,7 +91,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
 
                     if(curElement.slice(0, 7) === '<script')
                         this.insideScript = true;
-                    
+                 
                     this.processElement(curElement, lastOpenTagChar, i, parse);
                     break;
                 }
@@ -96,7 +100,9 @@ Injector.prototype._transform = function(chunk, encoding, done) {
             else if(insideClosing) {
                 curElement += char;
 
-                if(this.insideScript && curElement.length > 12) {
+                //20 is an arbitrary number representing the maximum number of characters in a closing script tag '</script   >'
+                //If too many spaces are present before the closing character '>', this will cause problems.
+                if(this.insideScript && curElement.length > 20) {
                     insideClosing = false;
                     continue;
                 }
@@ -132,17 +138,23 @@ Injector.prototype._transform = function(chunk, encoding, done) {
         // End parsing
         if(i >= this.curChunk.length && !this.alreadyDone) {
             this.alreadyDone = true;
-        
-            // Incomplete opening '<...' or closing '</...' tag.
-            // Push chunk up to incomplete tag beginning and save the rest in internal buffer.
+            var shouldReplace =  this.replaceStart || this.replaceEnd;
+            
+            if(shouldReplace) {
+                this.replaceStart && this.push(this.curChunk.slice(0, this.replaceStart));
+                this.replaceEnd && this.push(this.curChunk.slice(this.replaceEnd));
+            }
+            
+            // If incomplete opening '<...' or closing '</...' tag
+            // push chunk up to incomplete tag beginning and save the rest in internal buffer.
             if(insideClosing || insideOpening) { 
-                chunkBuffer = this.curChunk.slice(lastOpenTagChar);
-                this.push(this.curChunk.slice(0, lastOpenTagChar));
+                this.chunkBuffer = this.curChunk.slice(lastOpenTagChar);
+                !shouldReplace && this.push(this.curChunk.slice(0, lastOpenTagChar));
             }
 
-            else 
-                this.push(this.curChunk);
-
+            else
+                !shouldReplace && this.push(this.curChunk);
+ 
             done();
         }
         
@@ -155,20 +167,20 @@ Injector.prototype._transform = function(chunk, encoding, done) {
 
 Injector.prototype.processElement = function(tag, startTag, endTag, doneCb) {
     var tagName = tag.slice(1, tag.indexOf(' '));
-    var matches = this.selector.match(tag);
-    
+    var matches;
+ 
     this.offset = 0;
-    
+
     //No matches
-    if(matches.length === 0) {
+    if(this.replacing || (matches = this.selector.match(tag)).length === 0) {
         var stack = this.closingStack[tagName];
-        
+    
         if(stack && (this.HtmlselfClosingTags.indexOf(tagName) === -1)) 
             stack[stack.length - 1].counter++;
-        
+       
         return doneCb();
     }
-
+    
     var onCloseActions = [];
     var actionIndex = 0;
     var match;
@@ -285,10 +297,21 @@ function pushToChunk(doneCb, data, isTag) {
         this.dataStart = this.tagStart;
         //Remove tags
         this.curChunk = Buffer.concat([this.curChunk.slice(0, this.tagStart), this.curChunk.slice(this.tagStart + this.tagLen)]);
+        this.offset -= this.tagLen;
         this.firstPush = false;
     }
     
     if(!data) {
+        if(typeof isTag === "object" && 'replace' in isTag) {
+            this.replacing = !!isTag.replace;
+            
+            if(isTag.replace) 
+                this.replaceStart = this.dataStart;
+            else 
+                this.replaceEnd = this.dataStart;
+            
+        }
+        
         return doneCb();
     }
     
@@ -297,14 +320,11 @@ function pushToChunk(doneCb, data, isTag) {
         this.tagLen = data.length;
     }
     
-    else
-       this.offset += data.length; 
-    
     if(typeof data === "string")
         data = Buffer.from(data);
     
     this.curChunk = Buffer.concat([this.curChunk.slice(0, this.dataStart), data, this.curChunk.slice(this.dataStart)]);
-    
+    this.offset += data.length; 
     this.dataStart += data.length;
    
 }
