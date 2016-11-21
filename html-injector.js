@@ -66,7 +66,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
         lastOpenTagChar,    //index of last open tag character '<'.
         i = -1;
     
-    //TODO performance: move this definition out of _transform so it wont unecessarily have closure over chunk
+    //TODO memory: move this definition out of _transform so it wont unecessarily have closure over chunk
     var parse = function() {
         i += this.offset;
       
@@ -142,7 +142,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
             
             if(shouldReplace) {
                 this.replaceStart && this.push(this.curChunk.slice(0, this.replaceStart));
-                this.replaceEnd && this.push(this.curChunk.slice(this.replaceEnd));
+                this.replaceEnd && this.push(this.curChunk.slice(this.replaceEnd)) && (this.replaceEnd = this.replaceStart  = 0);
             }
             
             // If incomplete opening '<...' or closing '</...' tag
@@ -315,16 +315,22 @@ function pushToChunk(doneCb, data, isTag) {
         return doneCb();
     }
     
-    if(isTag) {
-        this.tagStart = this.dataStart;
-        this.tagLen = data.length;
+    if(data.on && data.pipe) { //If data is stream
+        
     }
     
-    if(typeof data === "string")
-        data = Buffer.from(data);
+    else {
+        if(isTag) {
+            this.tagStart = this.dataStart;
+            this.tagLen = data.length;
+        }
+        
+        if(typeof data === "string")
+            data = Buffer.from(data);
+
+        this.curChunk = Buffer.concat([this.curChunk.slice(0, this.dataStart), data, this.curChunk.slice(this.dataStart)]);
+        this.offset += data.length; 
+        this.dataStart += data.length;
+    }
     
-    this.curChunk = Buffer.concat([this.curChunk.slice(0, this.dataStart), data, this.curChunk.slice(this.dataStart)]);
-    this.offset += data.length; 
-    this.dataStart += data.length;
-   
 }
