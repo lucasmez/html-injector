@@ -1,0 +1,26 @@
+{
+  "name": "html-injector",
+  "version": "1.0.0",
+  "description": "A node.js stream implementation of a subset of core jQuery",
+  "main": "html-injector.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucasmez/html-injector.git"
+  },
+  "keywords": [
+    "html",
+    "parser",
+    "jquery",
+    "stream",
+    "htmlstream"
+  ],
+  "author": "Lucas Mezalira",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lucasmez/html-injector/issues"
+  },
+  "homepage": "https://github.com/lucasmez/html-injector#readme"
+}
