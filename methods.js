@@ -82,20 +82,16 @@ function removeClose(source, tag, push) {
 
 
 function before(source, tag, push) {
-    if((typeof source === "string") || Buffer.isBuffer(source)) {
-        push(source);
-        push(tag, true);
-        return push(null);
-    }
+    push(source);
+    push(tag, true);
+    return push(null);
 
 }
 
 function prepend(source, tag, push) {
-    if((typeof source === "string") || Buffer.isBuffer(source)) {
-        push(tag, true);
-        push(source);
-        return push(null);
-    }
+    push(tag, true);
+    push(source);
+    return push(null);
 }
 
 function append(source, tag, push) {
