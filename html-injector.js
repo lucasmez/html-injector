@@ -1,4 +1,5 @@
-//TODO Implement Stream support in pushToChunk()
+//TODO Implement Stream support
+
 "use strict";
 
 const stream = require('stream'),
@@ -154,7 +155,7 @@ Injector.prototype._transform = function(chunk, encoding, done) {
 
             else
                 !shouldReplace && this.push(this.curChunk);
- 
+         
             done();
         }
         
@@ -290,9 +291,20 @@ Injector.prototype.$ = function(selector) {
     this.selector.$();
 };
 
+Injector.prototype.getModifiers = function() {
+    return this.selector.modifiers;
+};
+
+Injector.prototype.setModifiers = function(modifiers) {
+    this.selector.modifiers = modifiers;
+};
+
 //Removes current tag from chunk once.
 //Inserts data in chunk at the position of the current tag.
 function pushToChunk(doneCb, data, isTag) {  
+    if(this.leftStreamMode)
+        doneCb();
+    
     if(this.firstPush) {
         this.dataStart = this.tagStart;
         //Remove tags
@@ -302,7 +314,7 @@ function pushToChunk(doneCb, data, isTag) {
     }
     
     if(!data) {
-        if(typeof isTag === "object" && 'replace' in isTag) {
+        if(Object.prototype.toString.call(isTag) === "[object Object]" && 'replace' in isTag) {
             this.replacing = !!isTag.replace;
             
             if(isTag.replace) 
@@ -316,6 +328,9 @@ function pushToChunk(doneCb, data, isTag) {
     }
     
     if(data.on && data.pipe) { //If data is stream
+        //pause all pipe sources
+        //enable stream mode
+        this.leftStreamMode
         
     }
     
